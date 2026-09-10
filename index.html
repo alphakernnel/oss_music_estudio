@@ -310,6 +310,53 @@
     </div>
 
 <script>
+    // 1. Credenciales y configuración de GitHub
+    const GITHUB_TOKEN = 'TU_TOKEN_AQUI'; 
+    const REPO_OWNER = 'TU_USUARIO_DE_GITHUB'; 
+    const REPO_NAME = 'NOMBRE_DE_TU_REPOSITORIO'; 
+    const BRANCH = 'main';
+
+    // 2. Función que envía los datos a GitHub (API REST)
+    async function guardarCancionEnGitHub(cancion) {
+        const path = `data/canciones/${cancion.id}.json`;
+        const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${path}`;
+        
+        const contenidoBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(cancion, null, 2))));
+        
+        let sha = null;
+        const responseCheck = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${GITHUB_TOKEN}` }
+        });
+        
+        if (responseCheck.ok) {
+            const dataFile = await responseCheck.json();
+            sha = dataFile.sha;
+        }
+
+        const bodyData = {
+            message: `Crea o actualiza canción: ${cancion.titulo}`,
+            content: contenidoBase64,
+            branch: BRANCH
+        };
+        
+        if (sha) bodyData.sha = sha;
+
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(bodyData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Error al guardar en GitHub: ${response.statusText}`);
+        }
+
+        return await response.json();
+    }
+
     let datosApp = {
         bandaActiva: 0,
         bandas: [
@@ -417,7 +464,6 @@
         if (!banda) return;
         document.getElementById('lblBandName').innerText = banda.nombre;
 
-        // Ocultar o mostrar columnas de edición extra según el modo
         document.querySelectorAll('.col-edicion-extra').forEach(col => {
             col.style.display = modoEdicionActivo ? '' : 'none';
         });
@@ -513,24 +559,53 @@
 
     window.cerrarModalDias = function() { document.getElementById('modalDias').style.display = 'none'; }
 
-    window.guardarNuevaCancionConDias = function() {
+    window.guardarNuevaCancionConDias = async function() {
         const input = document.getElementById('inputCancionArtista');
+        const textoTitulo = input.value.trim();
         const diasSeleccionados = [];
         document.querySelectorAll('.chk-dia:checked').forEach(chk => diasSeleccionados.push(chk.value));
 
-        datosApp.bandas[datosApp.bandaActiva].canciones.push({
-            texto: input.value.trim(),
+        const nuevaObra = {
+            texto: textoTitulo,
             bpm: 120,
             dificultad: "Media",
             pistas: "No",
             urgencia: "Media",
             nota: "",
             dias: diasSeleccionados
-        });
+        };
+
+        datosApp.bandas[datosApp.bandaActiva].canciones.push(nuevaObra);
         guardarEstadoAutomatico();
         input.value = '';
         cerrarModalDias();
         renderizarApp();
+
+        // Integración con GitHub DB estructurada
+        const idSlug = textoTitulo.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '-');
+        const jsonEstructuradoDB = {
+            id: idSlug,
+            titulo: textoTitulo,
+            artista: datosApp.bandas[datosApp.bandaActiva].nombre,
+            bpm: 120,
+            tono: "",
+            afinacion: "",
+            estructura: [],
+            notasGenerales: "",
+            metadatos: {
+                creadoPor: "Osvaldo Latín",
+                fechaCreacion: new Date().toISOString(),
+                ultimaModificacion: new Date().toISOString(),
+                version: 0
+            }
+        };
+
+        try {
+            await guardarCancionEnGitHub(jsonEstructuradoDB);
+            console.log("Sincronizado con GitHub DB.");
+        } catch (err) {
+            console.error("Error sincronizando con GitHub:", err);
+        }
     }
 
     window.abrirModalNotas = function(index) {
